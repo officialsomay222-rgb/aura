@@ -1,5 +1,5 @@
 import { Track } from '../types';
-import { searchJioSaavn, decryptMediaUrl } from '../lib/jiosaavnClient';
+import { searchJioSaavn, decryptMediaUrl, fetchJioSaavnSong } from '../lib/jiosaavnClient';
 import { ytifyResolver } from '../lib/ytifyResolver';
 import { getOfflineTrack } from '../lib/offlineStorage';
 
@@ -71,14 +71,13 @@ class MusicStreamService {
       } catch {}
     }
 
-    // 4. Default: Query JioSaavn first for title and artist
+    // 4. Default: Search JioSaavn first for title and artist with intelligent query matching
     if (track.title) {
       try {
-        const saavnResults = await searchJioSaavn(`${track.title} ${track.artist || ''}`.trim(), quality);
-        const saavnStream = saavnResults.length > 0 ? (saavnResults[0].streamUrl || saavnResults[0].audioUrl) : null;
-        if (saavnStream) {
+        const saavnTrack = await fetchJioSaavnSong(track.title, track.artist, quality);
+        if (saavnTrack && saavnTrack.streamUrl) {
           return {
-            streamUrl: saavnStream,
+            streamUrl: saavnTrack.streamUrl,
             provider: 'jiosaavn',
           };
         }

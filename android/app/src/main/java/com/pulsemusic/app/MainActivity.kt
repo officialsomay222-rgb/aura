@@ -118,6 +118,7 @@ class MainActivity : AppCompatActivity() {
             allowUniversalAccessFromFileURLs = true
 
             mediaPlaybackRequiresUserGesture = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             loadWithOverviewMode = true
             useWideViewPort = true
             cacheMode = WebSettings.LOAD_DEFAULT

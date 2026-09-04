@@ -1,27 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Play,
   Pause,
   SkipForward,
   SkipBack,
   ChevronDown,
+  Infinity,
   Shuffle,
   Volume2,
   VolumeX,
   Mic2,
+  ListMusic,
   Download,
-  Check,
-  Plus,
+  Share2, MoreVertical, Check, Plus,
   Heart,
   Sparkles,
-  Loader2,
-  Radio
+  X,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { Visualizer } from './Visualizer';
 import { AddToPlaylistModal } from './AddToPlaylistModal';
-import { isTrackOffline } from '../lib/offlineStorage';
-import { androidBridge } from '../services/androidBridge';
 
 export function Player() {
   const {
@@ -40,39 +38,37 @@ export function Player() {
     downloadTrack,
     offlineTracks,
     removeDownload,
+    playlists,
+    addToPlaylist,
     isRepeat,
     setIsRepeat,
     isShuffle,
-    setIsShuffle,
-    audioQuality,
-    setAudioQuality
+    setIsShuffle
   } = useMusic();
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
-  const [isOffline, setIsOffline] = useState(false);
 
-  useEffect(() => {
-    if (currentTrack) {
-      isTrackOffline(currentTrack.id).then(setIsOffline);
-    }
-  }, [currentTrack, offlineTracks]);
+  const isWhite = theme === 'light' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  const isDynamic = theme === 'dynamic';
 
   if (!currentTrack) return null;
 
+  const isOffline = offlineTracks?.some(t => t.id === currentTrack.id);
   const handleDownload = async () => {
     if (isOffline) {
       await removeDownload(currentTrack.id);
-      setIsOffline(false);
     } else {
       setIsDownloading(true);
+      showToast('Downloading to library...');
       await downloadTrack(currentTrack);
-      setIsOffline(true);
       setIsDownloading(false);
     }
+    setShowMenu(false);
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -80,6 +76,10 @@ export function Player() {
     const bounds = e.currentTarget.getBoundingClientRect();
     const percent = Math.max(0, Math.min(1, (e.clientX - bounds.left) / bounds.width));
     seekTo(percent * trackDuration);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setVolume(Number(e.target.value));
   };
 
   const formatTime = (time: number) => {
@@ -90,267 +90,436 @@ export function Player() {
   };
 
   const sampleLyrics = [
-    { time: 0, text: `[Intro - ${currentTrack.artist}]` },
-    { time: 10, text: 'Music flowing through the digital stream' },
-    { time: 24, text: 'Echoes of a timeless midnight dream' },
-    { time: 40, text: `Now listening to ${currentTrack.title}` },
-    { time: 60, text: 'High fidelity audio in 320kbps resolution' },
-    { time: 85, text: 'Bass pulsing through the speakers' },
-    { time: 110, text: 'Infinite frequency, endless horizon' }
+    { time: 0, text: `[Instrumental Intro - ${currentTrack.artist}]` },
+    { time: 8, text: 'City lights reflection on the road tonight' },
+    { time: 20, text: 'Hear the rhythm beating in the starry light' },
+    { time: 35, text: `Feel the lossless frequency of ${currentTrack.title}` },
+    { time: 55, text: 'Moving with the pulse, we are infinite and free' },
+    { time: 85, text: 'High above the skyline where the echoes play' },
+    { time: 120, text: 'Lost inside the sound until the break of day' },
   ];
 
   return (
     <>
-      {/* 1. Floating Mini Player (Docked directly above the bottom nav) */}
-      {!isExpanded && (
-        <div
-          onClick={() => setIsExpanded(true)}
-          className="fixed bottom-[94px] left-1/2 -translate-x-1/2 w-[92vw] sm:w-[400px] h-14 bg-dark-900/95 backdrop-blur-2xl rounded-2xl border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.8),0_0_15px_rgba(139,92,246,0.15)] flex items-center justify-between px-3 z-30 cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] select-none"
-        >
-          {/* Progress top line */}
-          <div className="absolute top-0 left-3 right-3 h-[2px] bg-dark-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-brand-primary to-brand-accent transition-all duration-150"
-              style={{ width: `${trackDuration > 0 ? (progress / trackDuration) * 100 : 0}%` }}
-            />
-          </div>
-
-          <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
-            <div className="relative w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 shadow-md">
-              <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-full h-full object-cover" />
-              {isPlaying && (
-                <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                  <div className="w-2 h-2 rounded-full bg-brand-primary animate-ping" />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <h4 className="text-xs font-bold text-white truncate">{currentTrack.title}</h4>
-              <p className="text-[10px] text-slate-400 truncate">{currentTrack.artist}</p>
-            </div>
-          </div>
-
-          {/* Quick Controls */}
-          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-            <button
-              onClick={() => setIsLiked(!isLiked)}
-              className="p-1.5 text-slate-400 hover:text-brand-secondary transition-colors"
-            >
-              <Heart size={17} className={isLiked ? 'fill-brand-secondary text-brand-secondary' : ''} />
-            </button>
-
-            <button
-              onClick={togglePlayPause}
-              className="w-9 h-9 rounded-full bg-gradient-to-tr from-brand-primary to-brand-secondary text-white flex items-center justify-center shadow-md active:scale-95 transition-transform"
-            >
-              {isPlaying ? <Pause size={15} className="fill-white" /> : <Play size={15} className="fill-white ml-0.5" />}
-            </button>
-
-            <button
-              onClick={nextTrack}
-              className="p-1.5 text-slate-400 hover:text-white transition-colors"
-            >
-              <SkipForward size={17} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Fullscreen Expanded Player Sheet */}
-      {isExpanded && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-dark-950 text-white select-none animate-in fade-in zoom-in-95 duration-200">
-          {/* Ambient blurred backdrop from cover */}
+      {/* Mini Player */}
+      
+        {!isExpanded && (
           <div
-            className="absolute inset-0 opacity-30 blur-3xl pointer-events-none scale-125"
-            style={{
-              backgroundImage: `url(${currentTrack.coverUrl})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
-          />
-          <div className="absolute inset-0 bg-dark-950/70 pointer-events-none" />
+            onClick={() => setIsExpanded(true)}
+            className={`fixed bottom-[94px] left-4 right-4 h-[64px] rounded-2xl z-40 backdrop-blur-2xl flex items-center justify-between overflow-hidden cursor-pointer px-2.5 transition-all max-w-[94vw] sm:max-w-md mx-auto ${
+              isDynamic
+                ? 'bg-black/60 border border-white/20 shadow-[0_12px_35px_rgba(0,0,0,0.5)] text-white'
+                : isWhite
+                ? 'bg-white/95 border border-zinc-300 shadow-[0_12px_35px_rgba(0,0,0,0.15)] text-black'
+                : 'bg-zinc-950/95 border border-white/15 shadow-[0_12px_35px_rgba(0,0,0,0.8)] text-white'
+            }`}
+          >
+            <Visualizer />
 
-          {/* Header */}
-          <div className="relative z-10 flex items-center justify-between px-6 pt-5 pb-2">
-            <button
-              onClick={() => setIsExpanded(false)}
-              className="p-2 rounded-full bg-dark-850 hover:bg-dark-800 border border-white/5 transition-colors"
+            {/* Micro Scrub Bar at the bottom */}
+            <div
+              className={`absolute bottom-0 left-0 right-0 h-[3px] z-20 group ${
+                isWhite ? 'bg-zinc-200' : 'bg-zinc-800'
+              }`}
+              onClick={handleSeek}
             >
-              <ChevronDown size={22} />
-            </button>
-            <div className="text-center min-w-0 px-2">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-brand-primary">
-                Playing Now
-              </span>
-              <p className="text-xs font-semibold text-slate-300 truncate max-w-[200px]">
-                {currentTrack.album || 'Owner-Vibe'}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleDownload}
-                disabled={isDownloading}
-                className={`p-2 rounded-full border border-white/5 transition-colors ${
-                  isOffline ? 'bg-brand-green/20 text-brand-green border-brand-green/30' : 'bg-dark-850 text-slate-300'
-                }`}
-                title={isOffline ? 'Downloaded offline' : 'Download song offline'}
-              >
-                {isDownloading ? <Loader2 size={16} className="animate-spin" /> : isOffline ? <Check size={16} /> : <Download size={16} />}
-              </button>
-              <button
-                onClick={() => setShowPlaylistModal(true)}
-                className="p-2 rounded-full bg-dark-850 hover:bg-dark-800 border border-white/5 text-slate-300"
-                title="Add to playlist"
-              >
-                <Plus size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* Center Stage: Album Art or Visualizer/Lyrics */}
-          <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-8 min-h-0">
-            {!showLyrics ? (
-              <div className="flex flex-col items-center w-full max-w-sm">
-                <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl overflow-hidden shadow-2xl border border-white/10 mb-6">
-                  <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-full h-full object-cover" />
-                </div>
-                {/* Fluid Wave Visualizer */}
-                <div className="w-full max-w-xs mb-2">
-                  <Visualizer />
-                </div>
-              </div>
-            ) : (
-              <div className="h-72 w-full max-w-sm overflow-y-auto px-4 py-6 space-y-4 text-center custom-scrollbar">
-                {sampleLyrics.map((line, idx) => {
-                  const isActive = progress >= line.time;
-                  return (
-                    <p
-                      key={idx}
-                      onClick={() => seekTo(line.time)}
-                      className={`cursor-pointer transition-all duration-200 font-semibold text-sm ${
-                        isActive ? 'text-white scale-105 drop-shadow-[0_0_10px_rgba(139,92,246,0.8)]' : 'text-slate-500'
-                      }`}
-                    >
-                      {line.text}
-                    </p>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Player Controls */}
-          <div className="relative z-10 px-8 pb-8 pt-2">
-            {/* Title, Artist, & Actions */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="min-w-0 flex-1 mr-4">
-                <h2 className="text-xl font-bold text-white truncate">{currentTrack.title}</h2>
-                <p className="text-xs text-slate-400 truncate mt-0.5">{currentTrack.artist}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowLyrics(!showLyrics)}
-                  className={`p-2 rounded-full border border-white/5 transition-colors ${
-                    showLyrics ? 'bg-brand-primary text-white' : 'bg-dark-850 text-slate-400'
-                  }`}
-                  title="Lyrics"
-                >
-                  <Mic2 size={18} />
-                </button>
-                <button
-                  onClick={() => setIsLiked(!isLiked)}
-                  className="p-2 rounded-full bg-dark-850 text-slate-400 hover:text-white"
-                >
-                  <Heart size={18} className={isLiked ? 'fill-brand-secondary text-brand-secondary' : ''} />
-                </button>
-              </div>
-            </div>
-
-            {/* Seek Bar */}
-            <div className="space-y-1.5 mb-5">
               <div
-                onClick={handleSeek}
-                className="relative w-full h-1.5 bg-dark-800 rounded-full cursor-pointer overflow-hidden group"
+                className={`h-full rounded-r-full transition-colors relative ${
+                  isWhite ? 'bg-black' : 'bg-white'
+                }`}
+                style={{
+                  width: `${Math.min(100, (progress / Math.max(1, trackDuration)) * 100)}%`,
+                }}
               >
                 <div
-                  className="h-full bg-gradient-to-r from-brand-primary via-purple-500 to-brand-secondary"
-                  style={{ width: `${trackDuration > 0 ? (progress / trackDuration) * 100 : 0}%` }}
+                  className={`absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full opacity-0 group-hover:opacity-100 ${
+                    isWhite ? 'bg-black' : 'bg-white'
+                  }`}
                 />
-              </div>
-              <div className="flex justify-between text-[11px] font-medium text-slate-400">
-                <span>{formatTime(progress)}</span>
-                <span>{formatTime(trackDuration)}</span>
               </div>
             </div>
 
-            {/* Main Transport Buttons */}
-            <div className="flex items-center justify-between max-w-xs mx-auto mb-5">
-              <button
-                onClick={() => setIsShuffle(!isShuffle)}
-                className={`p-2 rounded-full transition-colors ${
-                  isShuffle ? 'text-brand-primary' : 'text-slate-400 hover:text-white'
-                }`}
-                title="Shuffle"
-              >
-                <Shuffle size={18} />
-              </button>
-
-              <button onClick={prevTrack} className="p-2 text-slate-200 hover:text-white active:scale-95">
-                <SkipBack size={26} />
-              </button>
-
-              <button
-                onClick={togglePlayPause}
-                className="w-16 h-16 rounded-full bg-gradient-to-tr from-brand-primary via-purple-600 to-brand-secondary text-white flex items-center justify-center shadow-xl shadow-brand-primary/30 active:scale-95 transition-transform"
-              >
-                {isPlaying ? <Pause size={26} className="fill-white" /> : <Play size={26} className="fill-white ml-1" />}
-              </button>
-
-              <button onClick={nextTrack} className="p-2 text-slate-200 hover:text-white active:scale-95">
-                <SkipForward size={26} />
-              </button>
-
-              <button
-                onClick={() => setIsRepeat(!isRepeat)}
-                className={`p-2 rounded-full transition-colors ${
-                  isRepeat ? 'text-brand-primary' : 'text-slate-400 hover:text-white'
-                }`}
-                title="Repeat"
-              >
-                <Radio size={18} />
-              </button>
+            {/* Left Track Info */}
+            <div className="flex items-center gap-3 z-10 overflow-hidden flex-1 pl-1">
+              <div className="relative w-11 h-11 rounded-full overflow-hidden shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.3)] border border-black/20">
+                <img
+                  src={currentTrack.coverUrl}
+                  alt={currentTrack.title}
+                  className="w-full h-full object-cover animate-[spin_8s_linear_infinite]"
+                  style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}
+                />
+                <div className="absolute inset-0 rounded-full border border-black/20 pointer-events-none shadow-[inset_0_2px_4px_rgba(255,255,255,0.2)]" />
+                
+              </div>
+              <div className="truncate pr-2 text-left">
+                <h4
+                  className={`text-[13px] font-black truncate leading-tight tracking-tight ${
+                    isWhite ? 'text-black' : 'text-white'
+                  }`}
+                >
+                  {currentTrack.title}
+                </h4>
+                <p
+                  className={`text-[11px] truncate mt-0.5 font-medium ${
+                    isWhite ? 'text-zinc-500' : 'text-zinc-400'
+                  }`}
+                >
+                  {currentTrack.artist}
+                </p>
+              </div>
             </div>
 
-            {/* Audio Quality & Volume */}
-            <div className="flex items-center justify-between gap-4 max-w-xs mx-auto">
-              <div className="flex items-center gap-2 flex-1">
-                <Volume2 size={15} className="text-slate-400" />
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={volume}
-                  onChange={e => setVolume(Number(e.target.value))}
-                  className="w-full h-1 bg-dark-800 rounded-lg appearance-none cursor-pointer accent-brand-primary"
-                />
-              </div>
-
-              {/* Bitrate Selector */}
+            {/* Right Mini Controls */}
+            <div className="flex items-center gap-1.5 z-10 shrink-0">
               <button
-                onClick={() => {
-                  const next: '320' | '160' | '96' = audioQuality === '320' ? '160' : audioQuality === '160' ? '96' : '320';
-                  setAudioQuality(next);
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePlayPause();
                 }}
-                className="px-2.5 py-1 rounded-full bg-dark-850 border border-white/10 text-[10px] font-bold text-brand-primary"
+                className={`w-9 h-9 flex items-center justify-center rounded-full active:scale-90 transition-transform shadow-md ${
+                  isWhite ? 'bg-black text-white' : 'bg-white text-black'
+                }`}
               >
-                {audioQuality} kbps
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextTrack();
+                }}
+                className={`w-9 h-9 flex items-center justify-center active:scale-90 transition-all ${
+                  isWhite ? 'text-zinc-700 hover:text-black' : 'text-zinc-300 hover:text-white'
+                }`}
+              >
+                <SkipForward className="w-4 h-4 fill-current" />
               </button>
             </div>
           </div>
+        )}
+      
 
-          <AddToPlaylistModal track={currentTrack} onClose={() => setShowPlaylistModal(false)} />
-        </div>
-      )}
+      {/* Expanded Full-Screen Studio Player */}
+      
+        {isExpanded && (
+          <div
+            className={`fixed inset-0 z-[100] backdrop-blur-3xl flex flex-col items-center px-6 pb-safe pt-safe overflow-y-auto custom-scrollbar transition-colors ${
+              isDynamic
+                ? 'bg-black/60 text-white'
+                : isWhite 
+                  ? 'bg-white text-zinc-900' 
+                  : 'bg-black text-white'
+            }`}
+          >
+            {/* Ambient Artwork Glow in Dark Mode */}
+            {!isWhite && (
+              <div
+                className="absolute inset-0 opacity-20 filter blur-[120px] pointer-events-none"
+                style={{
+                  backgroundImage: `url(${currentTrack.coverUrl})`,
+                  backgroundPosition: 'center',
+                  backgroundSize: 'cover',
+                }}
+              />
+            )}
+
+            {/* Top Bar */}
+            <div className="w-full max-w-md z-50 flex items-center justify-between mb-4 mt-5 shrink-0">
+              <button
+                onClick={() => setIsExpanded(false)}
+                className={`p-2 -ml-2 rounded-full transition-colors active:scale-90 ${
+                  isWhite ? 'text-zinc-700 hover:bg-zinc-100' : 'text-zinc-300 hover:bg-white/10'
+                }`}
+              >
+                <ChevronDown className="w-7 h-7" />
+              </button>
+
+              <div className="flex flex-col items-center">
+                <span
+                  className={`text-[10px] font-black tracking-widest uppercase ${
+                    isWhite ? 'text-zinc-500' : 'text-zinc-400'
+                  }`}
+                >
+                  Playing From Studio
+                </span>
+                <span className="text-xs font-bold truncate max-w-[180px]">
+                  {currentTrack.album || 'Studio Master'}
+                </span>
+              </div>
+
+              
+              <div className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className={`p-2 rounded-full transition-colors active:scale-90 ${
+                    isWhite ? 'text-zinc-700 hover:bg-zinc-100' : 'text-zinc-300 hover:bg-white/10'
+                  }`}
+                >
+                  <MoreVertical className="w-6 h-6" />
+                </button>
+                {showMenu && (
+                  <div className={`absolute top-12 right-0 w-48 rounded-2xl shadow-xl border overflow-hidden z-50 ${isWhite ? 'bg-white border-zinc-200' : 'bg-zinc-900 border-zinc-800'}`}>
+                    <button onClick={handleDownload} className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/10 ${isWhite ? 'text-zinc-800' : 'text-zinc-100'}`}>
+                       {isDownloading ? <span className="animate-pulse flex items-center gap-2"><Download className="w-4 h-4"/> Downloading...</span> : isOffline ? <><Check className="w-4 h-4 text-emerald-500" /> Remove Download</> : <><Download className="w-4 h-4" /> Download</>}
+                    </button>
+                    <button onClick={() => { setShowLyrics(!showLyrics); setShowMenu(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/10 ${isWhite ? 'text-zinc-800' : 'text-zinc-100'}`}>
+                      <Mic2 className="w-4 h-4" /> {showLyrics ? 'Hide Lyrics' : 'Show Lyrics'}
+                    </button>
+                    <button onClick={() => { setShowPlaylistModal(true); setShowMenu(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/10 ${isWhite ? 'text-zinc-800' : 'text-zinc-100'}`}>
+                      <ListMusic className="w-4 h-4" /> Add to Playlist
+                    </button>
+                    <button onClick={() => { navigator.clipboard?.writeText(window.location.href); showToast('Link copied!'); setShowMenu(false); }} className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/10 ${isWhite ? 'text-zinc-800' : 'text-zinc-100'}`}>
+                      <Share2 className="w-4 h-4" /> Share
+                    </button>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Center Area: Album Cover / Synchronized Lyrics */}
+            <div className="w-full max-w-md z-10 flex-1 flex flex-col justify-center min-h-[380px]">
+              
+                {!showLyrics ? (
+                  <div
+                    key="art"
+                    className="w-full aspect-square max-h-[42vh] rounded-3xl overflow-hidden shadow-2xl mb-6 border mx-auto relative group"
+                    style={{
+                      borderColor: isWhite ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    <img
+                      src={currentTrack.coverUrl}
+                      alt={currentTrack.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                      <span className="text-xs font-mono text-white/90">Lossless 24-bit 96kHz</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    key="lyrics"
+                    className={`w-full h-[42vh] flex flex-col items-center justify-start mb-6 p-5 text-center overflow-y-auto custom-scrollbar rounded-3xl border ${
+                      isWhite
+                        ? 'bg-zinc-100/90 border-zinc-200 text-black'
+                        : 'bg-zinc-900/90 border-white/10 text-white'
+                    }`}
+                  >
+                    <p
+                      className={`text-xs font-bold uppercase tracking-widest mb-4 ${
+                        isWhite ? 'text-zinc-400' : 'text-zinc-500'
+                      }`}
+                    >
+                      Studio Lyrics
+                    </p>
+                    <div className="space-y-4 my-auto">
+                      {sampleLyrics.map((line, idx) => (
+                        <p
+                          key={idx}
+                          className={`text-base font-bold transition-all ${
+                            progress >= line.time
+                              ? isWhite
+                                ? 'text-black scale-105'
+                                : 'text-white scale-105'
+                              : isWhite
+                              ? 'text-zinc-400'
+                              : 'text-zinc-600'
+                          }`}
+                        >
+                          {line.text}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              
+
+              {/* Title & Artist & Favorite */}
+              <div className="w-full mb-5 flex items-center justify-between shrink-0">
+                <div className="flex-1 min-w-0 pr-3">
+                  <h2
+                    className={`text-2xl font-black truncate tracking-tight ${
+                      isWhite ? 'text-black' : 'text-white'
+                    }`}
+                  >
+                    {currentTrack.title}
+                  </h2>
+                  <p
+                    className={`text-sm truncate mt-0.5 font-semibold ${
+                      isWhite ? 'text-zinc-600' : 'text-zinc-400'
+                    }`}
+                  >
+                    {currentTrack.artist}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setIsLiked(!isLiked);
+                    showToast(isLiked ? 'Removed from Favorites' : '❤️ Added to Favorites');
+                  }}
+                  className={`p-2.5 rounded-full transition-transform active:scale-90 ${
+                    isLiked
+                      ? 'text-rose-500'
+                      : isWhite
+                      ? 'text-zinc-400 hover:text-black'
+                      : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  <Heart className={`w-6 h-6 ${isLiked ? 'fill-rose-500' : ''}`} />
+                </button>
+              </div>
+
+              {/* Progress Slider */}
+              <div className="w-full mb-6 shrink-0 group">
+                <div
+                  className="h-6 w-full flex items-center cursor-pointer -my-2"
+                  onClick={handleSeek}
+                >
+                  <div
+                    className={`h-1.5 w-full rounded-full relative transition-all duration-300 group-hover:h-2 ${
+                      isWhite ? 'bg-zinc-200' : 'bg-white/20'
+                    }`}
+                  >
+                    <div
+                      className={`h-full rounded-full relative ${
+                        isWhite ? 'bg-black' : 'bg-white'
+                      }`}
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (progress / Math.max(1, trackDuration)) * 100
+                        )}%`,
+                      }}
+                    >
+                      <div
+                        className={`absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity ${
+                          isWhite ? 'bg-black' : 'bg-white'
+                        }`}
+                        style={{ transform: 'translate(50%, -50%)' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={`flex items-center justify-between mt-2 text-xs font-mono font-medium ${
+                    isWhite ? 'text-zinc-500' : 'text-zinc-400'
+                  }`}
+                >
+                  <span>{formatTime(progress)}</span>
+                  <span>{formatTime(trackDuration)}</span>
+                </div>
+              </div>
+
+              {/* Primary Transport Controls */}
+              <div className="w-full flex items-center justify-between mb-5 shrink-0 px-2">
+                <button
+                  onClick={() => {
+                    setIsShuffle(!isShuffle);
+                    showToast(isShuffle ? 'Shuffle Off' : 'Shuffle On');
+                  }}
+                  className={`p-2.5 rounded-full transition-colors active:scale-90 ${
+                    isShuffle
+                      ? isWhite
+                        ? 'text-black bg-zinc-200'
+                        : 'text-white bg-white/20'
+                      : isWhite
+                      ? 'text-zinc-400 hover:text-black'
+                      : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  <Shuffle className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center gap-6">
+                  <button
+                    onClick={prevTrack}
+                    className={`p-2.5 rounded-full active:scale-90 transition-all ${
+                      isWhite ? 'text-black hover:bg-zinc-100' : 'text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <SkipBack className="w-7 h-7 fill-current" />
+                  </button>
+
+                  <button
+                    onClick={togglePlayPause}
+                    className={`w-16 h-16 flex items-center justify-center rounded-full active:scale-90 transition-all shadow-2xl ${
+                      isWhite ? 'bg-black text-white' : 'bg-white text-black shadow-white/20'
+                    }`}
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-7 h-7 fill-current" />
+                    ) : (
+                      <Play className="w-7 h-7 fill-current ml-1" />
+                    )}
+                  </button>
+
+                  <button
+                    onClick={nextTrack}
+                    className={`p-2.5 rounded-full active:scale-90 transition-all ${
+                      isWhite ? 'text-black hover:bg-zinc-100' : 'text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <SkipForward className="w-7 h-7 fill-current" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setIsRepeat(!isRepeat);
+                    showToast(isRepeat ? 'Repeat Off' : 'Repeat Track On');
+                  }}
+                  className={`p-2.5 rounded-full transition-colors active:scale-90 ${
+                    isRepeat
+                      ? isWhite
+                        ? 'text-black bg-zinc-200'
+                        : 'text-white bg-white/20'
+                      : isWhite
+                      ? 'text-zinc-400 hover:text-black'
+                      : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  <Infinity className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Volume Slider & Secondary Actions */}
+              <div className="w-full flex items-center justify-between mt-2 mb-6 shrink-0 px-2 gap-4">
+                {/* Volume Bar */}
+                <div className="flex items-center gap-2.5 flex-1 max-w-[200px]">
+                  {volume === 0 ? (
+                    <VolumeX className={`w-4 h-4 shrink-0 ${isWhite ? 'text-zinc-500' : 'text-zinc-400'}`} />
+                  ) : (
+                    <Volume2 className={`w-4 h-4 shrink-0 ${isWhite ? 'text-zinc-500' : 'text-zinc-400'}`} />
+                  )}
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={handleVolumeChange}
+                    className="w-full accent-black dark:accent-white cursor-pointer h-1.5 rounded-full"
+                  />
+                </div>
+
+                
+              </div>
+            </div>
+          </div>
+        )}
+      
+        {/* Add to Playlist Modal */}
+        {showPlaylistModal && currentTrack && (
+          <AddToPlaylistModal 
+            track={currentTrack} 
+            onClose={() => setShowPlaylistModal(false)} 
+          />
+        )}
     </>
   );
 }
