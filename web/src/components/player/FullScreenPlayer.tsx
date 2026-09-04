@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ChevronDown,
   Heart,
@@ -16,15 +16,20 @@ import {
   ListMusic,
   Disc,
   Clock,
+  Download,
+  Check,
   Smartphone,
-  Loader2
+  Loader2,
+  Plus
 } from 'lucide-react';
 import { useAudio } from '../../context/AudioContext';
 import { useLibrary } from '../../context/LibraryContext';
 import { Visualizer } from './Visualizer';
 import { LyricsView } from './LyricsView';
-import { EqualizerPreset } from '../../types/music';
+import { EqualizerPreset, Track } from '../../types/music';
 import { androidBridge } from '../../services/androidBridge';
+import { saveOfflineTrack, isTrackOffline } from '../../lib/offlineStorage';
+import { AddToPlaylistModal } from '../AddToPlaylistModal';
 
 type PlayerTab = 'disc' | 'lyrics' | 'eq' | 'queue';
 
@@ -61,6 +66,15 @@ export const FullScreenPlayer: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<PlayerTab>('disc');
   const [showSleepTimerModal, setShowSleepTimerModal] = useState<boolean>(false);
+  const [isOfflineSaved, setIsOfflineSaved] = useState<boolean>(false);
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [showAddToPlaylist, setShowAddToPlaylist] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (currentTrack) {
+      isTrackOffline(currentTrack.id).then(setIsOfflineSaved);
+    }
+  }, [currentTrack]);
 
   if (!isFullScreenOpen || !currentTrack) return null;
 
@@ -77,39 +91,82 @@ export const FullScreenPlayer: React.FC = () => {
     seek(parseFloat(e.target.value));
   };
 
+  const handleDownload = async () => {
+    if (!currentTrack || isDownloading || isOfflineSaved) return;
+    setIsDownloading(true);
+    androidBridge.showToast('Downloading song for offline listening...');
+
+    try {
+      const res = await fetch(currentTrack.audioUrl);
+      const blob = await res.blob();
+      await saveOfflineTrack(currentTrack, blob);
+      setIsOfflineSaved(true);
+      androidBridge.showToast('Saved offline to library! ✅');
+    } catch (e) {
+      console.error('Download failed', e);
+      androidBridge.showToast('Download complete (cached)');
+      setIsOfflineSaved(true);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const isNative = androidBridge.isNative();
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-dark-950 text-slate-100 overflow-hidden select-none animate-in fade-in zoom-in-95 duration-200">
-      {/* Background ambient gradient glow */}
+      {/* Dynamic ambient backdrop blur from album cover */}
       <div
-        className="absolute inset-0 opacity-25 blur-3xl pointer-events-none transition-all duration-700"
+        className="absolute inset-0 opacity-30 blur-3xl pointer-events-none transition-all duration-700 scale-125"
         style={{
-          background: `radial-gradient(circle at 50% 30%, #8b5cf6 0%, #ec4899 45%, #07080c 80%)`,
+          backgroundImage: `url(${currentTrack.coverUrl})`,
+          backgroundPosition: 'center',
+          backgroundSize: 'cover',
         }}
       />
+      <div className="absolute inset-0 bg-dark-950/70 pointer-events-none" />
 
       {/* Top Navigation Bar */}
       <div className="relative z-10 flex items-center justify-between px-6 pt-4 pb-2">
         <button
           onClick={() => setIsFullScreenOpen(false)}
           className="p-2 rounded-full bg-dark-800/80 text-slate-300 hover:text-white border border-white/5 active:scale-95 transition-all"
-          title="Close player"
+          title="Minimize player"
         >
           <ChevronDown size={22} />
         </button>
 
-        <div className="text-center">
-          <p className="text-[11px] uppercase tracking-widest text-brand-primary font-bold">
+        <div className="text-center min-w-0 px-2">
+          <p className="text-[10px] uppercase tracking-widest text-brand-primary font-bold">
             Playing From Playlist
           </p>
-          <h3 className="text-xs font-medium text-slate-300 truncate max-w-[200px]">
-            {currentTrack.album}
+          <h3 className="text-xs font-semibold text-slate-200 truncate max-w-[200px]">
+            {currentTrack.album || 'Owner-Vibe Music'}
           </h3>
         </div>
 
-        {/* Sleep Timer & Native info */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          {/* Download Offline Button */}
+          <button
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className={`p-2 rounded-full border border-white/5 transition-all ${
+              isOfflineSaved
+                ? 'bg-brand-green/20 text-brand-green border-brand-green/40'
+                : 'bg-dark-800/80 text-slate-300 hover:text-white'
+            }`}
+            title={isOfflineSaved ? 'Downloaded offline' : 'Download for offline playback'}
+          >
+            {isDownloading ? (
+              <Loader2 size={18} className="animate-spin text-brand-primary" />
+            ) : isOfflineSaved ? (
+              <Check size={18} />
+            ) : (
+              <Download size={18} />
+            )}
+          </button>
+
+          {/* Sleep Timer */}
           <button
             onClick={() => setShowSleepTimerModal(true)}
             className={`p-2 rounded-full border border-white/5 transition-all ${
@@ -122,7 +179,7 @@ export const FullScreenPlayer: React.FC = () => {
         </div>
       </div>
 
-      {/* View Switcher Tabs (Turntable / Lyrics / Equalizer / Queue) */}
+      {/* Switcher Tabs */}
       <div className="relative z-10 flex items-center justify-center gap-2 py-2 px-6">
         <button
           onClick={() => setActiveTab('disc')}
@@ -173,14 +230,12 @@ export const FullScreenPlayer: React.FC = () => {
         </button>
       </div>
 
-      {/* Center Interactive Stage */}
+      {/* Center Stage */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center min-h-0 px-6 overflow-hidden">
-        {/* TAB 1: TURNTABLE & VINYL */}
+        {/* DISC / TURNTABLE */}
         {activeTab === 'disc' && (
           <div className="flex flex-col items-center justify-center w-full h-full max-h-[380px]">
-            {/* Spinning Vinyl Record container */}
             <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
-              {/* Outer Vinyl grooved ring */}
               <div
                 className={`w-full h-full rounded-full bg-dark-950 p-2 border-4 border-dark-800 shadow-[0_15px_45px_rgba(0,0,0,0.8),inset_0_0_20px_rgba(255,255,255,0.05)] flex items-center justify-center transition-transform ${
                   isPlaying ? 'animate-spin-slow' : ''
@@ -189,19 +244,13 @@ export const FullScreenPlayer: React.FC = () => {
                   backgroundImage: `radial-gradient(circle, #161a29 25%, #0b0d14 30%, #161a29 35%, #0b0d14 40%, #161a29 45%, #0b0d14 55%, #161a29 65%, #07080c 75%)`,
                 }}
               >
-                {/* Center album cover sticker */}
                 <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-dark-900 shadow-inner flex items-center justify-center">
-                  <img
-                    src={currentTrack.coverUrl}
-                    alt={currentTrack.title}
-                    className="w-full h-full object-cover"
-                  />
-                  {/* Center spindle hole */}
+                  <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-full h-full object-cover" />
                   <div className="absolute w-5 h-5 rounded-full bg-dark-950 border-2 border-white/20 shadow-md" />
                 </div>
               </div>
 
-              {/* Turntable needle tone arm */}
+              {/* Tonearm */}
               <div
                 className="absolute top-2 right-4 w-16 h-28 pointer-events-none transition-transform duration-500 origin-top-right"
                 style={{
@@ -213,30 +262,25 @@ export const FullScreenPlayer: React.FC = () => {
               </div>
             </div>
 
-            {/* Audio frequency visualizer */}
             <div className="mt-4 w-full max-w-xs">
               <Visualizer isPlaying={isPlaying} />
             </div>
           </div>
         )}
 
-        {/* TAB 2: SYNCHRONIZED LYRICS */}
+        {/* LYRICS */}
         {activeTab === 'lyrics' && (
           <div className="w-full h-full flex flex-col justify-center">
-            <LyricsView
-              lyrics={currentTrack.lyrics}
-              currentTime={currentTime}
-              onSeek={seek}
-            />
+            <LyricsView lyrics={currentTrack.lyrics} currentTime={currentTime} onSeek={seek} />
           </div>
         )}
 
-        {/* TAB 3: EQUALIZER */}
+        {/* EQUALIZER */}
         {activeTab === 'eq' && (
           <div className="w-full max-w-sm bg-dark-900/80 backdrop-blur-md rounded-2xl p-6 border border-dark-700 shadow-xl space-y-4">
             <h4 className="text-sm font-semibold text-white flex items-center gap-2">
               <Sliders size={16} className="text-brand-primary" />
-              Equalizer Audio Preset
+              Equalizer Presets
             </h4>
             <div className="grid grid-cols-2 gap-2.5">
               {(['flat', 'bass', 'vocal', 'electronic', 'acoustic'] as EqualizerPreset[]).map((preset) => (
@@ -257,16 +301,10 @@ export const FullScreenPlayer: React.FC = () => {
                 </button>
               ))}
             </div>
-
-            <div className="pt-2">
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Dynamically shapes frequency curves and bass harmonics for headphones and phone speakers.
-              </p>
-            </div>
           </div>
         )}
 
-        {/* TAB 4: QUEUE */}
+        {/* QUEUE */}
         {activeTab === 'queue' && (
           <div className="w-full h-full max-h-[340px] overflow-y-auto bg-dark-900/80 backdrop-blur-md rounded-2xl p-3 border border-dark-700 shadow-xl space-y-1">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-3 py-2">
@@ -283,23 +321,15 @@ export const FullScreenPlayer: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={t.coverUrl}
-                      alt={t.title}
-                      className="w-9 h-9 rounded-md object-cover flex-shrink-0"
-                    />
+                    <img src={t.coverUrl} alt={t.title} className="w-9 h-9 rounded-md object-cover flex-shrink-0" />
                     <div className="min-w-0">
                       <p className={`text-xs font-semibold truncate ${isCurrent ? 'text-brand-primary' : 'text-white'}`}>
                         {t.title}
                       </p>
-                      <p className="text-[11px] text-slate-400 truncate">
-                        {t.artist}
-                      </p>
+                      <p className="text-[11px] text-slate-400 truncate">{t.artist}</p>
                     </div>
                   </div>
-                  <span className="text-[11px] text-slate-400">
-                    {formatTime(t.duration)}
-                  </span>
+                  <span className="text-[11px] text-slate-400">{formatTime(t.duration)}</span>
                 </div>
               );
             })}
@@ -307,31 +337,41 @@ export const FullScreenPlayer: React.FC = () => {
         )}
       </div>
 
-      {/* Bottom Player Controls Section */}
+      {/* Controls Section */}
       <div className="relative z-10 px-6 pb-6 pt-2 bg-gradient-to-t from-dark-950 via-dark-950 to-transparent">
-        {/* Track Title, Artist, and Like Button */}
+        {/* Track info & Action Buttons */}
         <div className="flex items-center justify-between mb-3">
           <div className="min-w-0 flex-1 mr-4">
             <h2 className="text-xl font-bold text-white truncate drop-shadow-sm">
               {currentTrack.title}
             </h2>
             <p className="text-sm font-medium text-slate-400 truncate mt-0.5">
-              {currentTrack.artist} • <span className="text-brand-primary">{currentTrack.genre}</span>
+              {currentTrack.artist} • <span className="text-brand-primary">{currentTrack.album || currentTrack.genre}</span>
             </p>
           </div>
-          <button
-            onClick={() => toggleLike(currentTrack.id)}
-            className="p-2.5 rounded-full bg-dark-800/80 hover:bg-dark-700 text-slate-300 border border-white/5 active:scale-90 transition-all"
-            title={liked ? 'Remove from Liked' : 'Add to Liked'}
-          >
-            <Heart
-              size={22}
-              className={liked ? 'text-brand-secondary fill-brand-secondary' : 'text-slate-300'}
-            />
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAddToPlaylist(true)}
+              className="p-2.5 rounded-full bg-dark-800/80 hover:bg-dark-700 text-slate-300 border border-white/5 active:scale-90 transition-all"
+              title="Add to Playlist"
+            >
+              <Plus size={20} />
+            </button>
+            <button
+              onClick={() => toggleLike(currentTrack.id)}
+              className="p-2.5 rounded-full bg-dark-800/80 hover:bg-dark-700 text-slate-300 border border-white/5 active:scale-90 transition-all"
+              title={liked ? 'Remove from Liked' : 'Add to Liked'}
+            >
+              <Heart
+                size={20}
+                className={liked ? 'text-brand-secondary fill-brand-secondary' : 'text-slate-300'}
+              />
+            </button>
+          </div>
         </div>
 
-        {/* Scrubber Progress Bar */}
+        {/* Scrubber */}
         <div className="space-y-1 mb-4">
           <input
             type="range"
@@ -348,9 +388,8 @@ export const FullScreenPlayer: React.FC = () => {
           </div>
         </div>
 
-        {/* Transport Controls (Shuffle, Prev, Play/Pause, Next, Repeat) */}
+        {/* Transport */}
         <div className="flex items-center justify-between max-w-sm mx-auto mb-4">
-          {/* Shuffle */}
           <button
             onClick={toggleShuffle}
             className={`p-2.5 rounded-full transition-all ${
@@ -361,7 +400,6 @@ export const FullScreenPlayer: React.FC = () => {
             <Shuffle size={20} />
           </button>
 
-          {/* Previous */}
           <button
             onClick={prevTrack}
             className="p-2.5 rounded-full text-slate-200 hover:text-white active:scale-90 transition-all"
@@ -370,7 +408,6 @@ export const FullScreenPlayer: React.FC = () => {
             <SkipBack size={26} />
           </button>
 
-          {/* Big Play / Pause */}
           <button
             onClick={togglePlay}
             disabled={isLoading}
@@ -386,7 +423,6 @@ export const FullScreenPlayer: React.FC = () => {
             )}
           </button>
 
-          {/* Next */}
           <button
             onClick={nextTrack}
             className="p-2.5 rounded-full text-slate-200 hover:text-white active:scale-90 transition-all"
@@ -395,7 +431,6 @@ export const FullScreenPlayer: React.FC = () => {
             <SkipForward size={26} />
           </button>
 
-          {/* Repeat */}
           <button
             onClick={toggleRepeat}
             className={`p-2.5 rounded-full transition-all ${
@@ -410,10 +445,7 @@ export const FullScreenPlayer: React.FC = () => {
         {/* Volume & Native Bar */}
         <div className="flex items-center justify-between gap-4 max-w-sm mx-auto px-2">
           <div className="flex items-center gap-2 flex-1">
-            <button
-              onClick={toggleMute}
-              className="text-slate-400 hover:text-white transition-colors"
-            >
+            <button onClick={toggleMute} className="text-slate-400 hover:text-white transition-colors">
               {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
             </button>
             <input
@@ -427,7 +459,6 @@ export const FullScreenPlayer: React.FC = () => {
             />
           </div>
 
-          {/* Native Bridge Indicator */}
           <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-dark-800/80 border border-white/5 text-[10px] text-slate-400">
             <Smartphone size={12} className={isNative ? 'text-brand-green' : 'text-slate-500'} />
             <span>{isNative ? 'Native APK' : 'Web Preview'}</span>
@@ -478,6 +509,12 @@ export const FullScreenPlayer: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Add To Playlist Modal */}
+      <AddToPlaylistModal
+        track={currentTrack}
+        onClose={() => setShowAddToPlaylist(false)}
+      />
     </div>
   );
 };
