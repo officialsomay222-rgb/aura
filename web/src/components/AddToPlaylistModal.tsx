@@ -1,128 +1,62 @@
-import React, { useState } from 'react';
-import { X, Plus, FolderPlus, Check } from 'lucide-react';
-import { Track } from '../types/music';
-import { useLibrary } from '../context/LibraryContext';
+import React from 'react';
+import { X } from 'lucide-react';
+import { useMusic } from '../context/MusicContext';
+import { Track } from '../types';
 
 interface AddToPlaylistModalProps {
-  track: Track | null;
+  track: Track;
   onClose: () => void;
 }
 
-export const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({ track, onClose }) => {
-  const { playlists, addTrackToPlaylist, createPlaylist } = useLibrary();
-  const [newTitle, setNewTitle] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-
-  if (!track) return null;
-
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    const p = createPlaylist(newTitle.trim());
-    addTrackToPlaylist(p.id, track.id);
-    setNewTitle('');
-    setShowCreate(false);
-    onClose();
-  };
+export function AddToPlaylistModal({ track, onClose }: AddToPlaylistModalProps) {
+  const { playlists, addToPlaylist, theme } = useMusic();
+  
+  const isWhite = theme === 'light' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  const isDynamic = theme === 'dynamic';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-xs bg-dark-900 border border-dark-700 rounded-3xl p-5 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-            <FolderPlus size={16} className="text-brand-primary" />
-            Add to Playlist
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-full text-slate-400 hover:text-white"
-          >
-            <X size={16} />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className={`relative w-full max-w-sm rounded-3xl p-6 shadow-2xl ${isDynamic ? 'bg-zinc-900 border border-white/10 text-white' : isWhite ? 'bg-white text-black' : 'bg-zinc-900 text-white'}`}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-bold">Add to Playlist</h3>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-black/10 dark:hover:bg-white/10">
+            <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Track summary */}
-        <div className="flex items-center gap-3 p-2.5 rounded-xl bg-dark-800 border border-white/5">
-          <img
-            src={track.coverUrl}
-            alt={track.title}
-            className="w-10 h-10 rounded-lg object-cover"
-          />
-          <div className="min-w-0">
-            <p className="text-xs font-bold text-white truncate">{track.title}</p>
-            <p className="text-[10px] text-slate-400 truncate">{track.artist}</p>
-          </div>
-        </div>
-
-        {/* Existing Playlists */}
-        <div className="space-y-1.5 max-h-48 overflow-y-auto">
-          {playlists.map((playlist) => {
-            const isAlreadyAdded = playlist.trackIds.includes(track.id);
-
-            return (
+        
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto custom-scrollbar">
+          {playlists.length === 0 ? (
+            <div className="text-center py-6 opacity-60">
+              <p className="text-sm">No playlists yet.</p>
+              <p className="text-xs mt-1">Create one in your library.</p>
+            </div>
+          ) : (
+            playlists.map(playlist => (
               <button
                 key={playlist.id}
                 onClick={() => {
-                  if (!isAlreadyAdded) {
-                    addTrackToPlaylist(playlist.id, track.id);
-                  }
+                  addToPlaylist(playlist.id, track);
                   onClose();
                 }}
-                className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-medium transition-all ${
-                  isAlreadyAdded
-                    ? 'bg-brand-primary/15 text-brand-primary border border-brand-primary/30'
-                    : 'bg-dark-850 hover:bg-dark-800 text-slate-200 border border-dark-750'
+                className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all ${
+                  isDynamic ? 'hover:bg-white/10' : isWhite ? 'hover:bg-zinc-100' : 'hover:bg-white/5'
                 }`}
               >
-                <span className="truncate">{playlist.title}</span>
-                {isAlreadyAdded ? (
-                  <Check size={14} className="text-brand-primary flex-shrink-0" />
-                ) : (
-                  <Plus size={14} className="text-slate-400 flex-shrink-0" />
-                )}
+                <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                  <img src={playlist.coverUrl} alt={playlist.name} className="w-full h-full object-cover" />
+                </div>
+                <div className="text-left flex-1 min-w-0">
+                  <h4 className="font-bold truncate text-[15px]">{playlist.name}</h4>
+                  <p className={`text-xs truncate mt-0.5 ${isDynamic ? 'text-white/60' : isWhite ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    {playlist.tracks.length} tracks
+                  </p>
+                </div>
               </button>
-            );
-          })}
+            ))
+          )}
         </div>
-
-        {/* Quick New Playlist Toggle */}
-        {!showCreate ? (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="w-full py-2.5 rounded-xl bg-dark-800 hover:bg-dark-750 text-xs font-semibold text-brand-primary flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <Plus size={14} />
-            Create New Playlist
-          </button>
-        ) : (
-          <form onSubmit={handleCreate} className="space-y-2 pt-1">
-            <input
-              type="text"
-              required
-              autoFocus
-              placeholder="Playlist name..."
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-primary"
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCreate(false)}
-                className="flex-1 py-1.5 rounded-lg bg-dark-800 text-[11px] text-slate-400"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-1.5 rounded-lg bg-brand-primary text-[11px] font-semibold text-white"
-              >
-                Save
-              </button>
-            </div>
-          </form>
-        )}
       </div>
     </div>
   );
-};
+}

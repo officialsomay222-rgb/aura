@@ -1,5 +1,5 @@
 import CryptoJS from 'crypto-js';
-import { Track } from '../types/music';
+import { Track } from '../types';
 
 const SAAVN_SEARCH_URL = 'https://www.jiosaavn.com/api.php';
 const DES_KEY = '38346591';
@@ -71,14 +71,14 @@ export async function searchJioSaavn(query: string, quality: '320' | '160' | '96
         album: cleanHtmlText(item.more_info?.album || item.album || 'Single'),
         duration: parseInt(item.more_info?.duration || item.duration || '180', 10),
         coverUrl: cleanCoverUrl(item.image),
-        audioUrl: decryptedStream || `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-${(tracks.length % 8) + 1}.mp3`,
-        genre: 'Pop / Indian / Global',
+        streamUrl: decryptedStream || undefined,
+        source: 'jiosaavn',
       });
     }
 
     return tracks;
   } catch (err) {
-    console.warn('Direct JioSaavn search fetch failed (likely CORS or network), falling back to offline curated results:', err);
+    console.warn('Direct JioSaavn search fetch failed (likely CORS or network), falling back:', err);
     return [];
   }
 }
