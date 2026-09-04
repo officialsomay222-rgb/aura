@@ -1,0 +1,17 @@
+{
+  "name": "pulse-music-monorepo",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "PulseMusic - Full-fledged Hybrid Music App (Android Kotlin APK + Compiled Web Core)",
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "sync:assets": "node scripts/sync-assets.js",
+    "build:all": "npm run build && npm run sync:assets",
+    "assemble:apk": "npm run build:all && cd android && gradlew.bat assembleDebug"
+  },
+  "keywords": ["music", "hybrid-app", "android", "kotlin", "webview", "react"],
+  "author": "",
+  "license": "MIT"
+}
